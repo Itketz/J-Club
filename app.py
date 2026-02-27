@@ -2,15 +2,16 @@ import streamlit as st
 import os
 
 
-# --- FAIL-SAFE IMPORT FOR PYMUPDF ---
+import subprocess
+import sys
+
+# --- EMERGENCY INSTALLER ---
 try:
     import fitz
 except ImportError:
-    try:
-        import pymupdf as fitz
-    except ImportError:
-        st.error("PyMuPDF (fitz) could not be loaded. Please check requirements.txt")
-
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "pymupdf"])
+    import fitz
+    
 import io
 import requests
 from PIL import Image
