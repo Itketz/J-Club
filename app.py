@@ -1,6 +1,20 @@
 import streamlit as st
 import os
-import pymupdf  
+
+
+# --- FAIL-SAFE IMPORT FOR PYMUPDF ---
+try:
+    import fitz
+except ImportError:
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        st.error("PyMuPDF (fitz) could not be loaded. Please check requirements.txt")
+
+import io
+import requests
+from PIL import Image
+import streamlit.components.v1 as components  
 import io
 import requests
 from PIL import Image
