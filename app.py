@@ -1,25 +1,11 @@
 import streamlit as st
-import os
-
-
-import subprocess
-import sys
-
-# --- EMERGENCY INSTALLER ---
-try:
-    import fitz
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pymupdf"])
-    import fitz
-    
-import io
-import requests
-from PIL import Image
-import streamlit.components.v1 as components  
+import fitz  # This will now be powered by pymupdf-lite
 import io
 import requests
 from PIL import Image
 import streamlit.components.v1 as components
+
+
 
 # --- 1. CONFIG & STORAGE ---
 st.set_page_config(page_title="J-Club", layout="wide")
