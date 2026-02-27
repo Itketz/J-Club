@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-import fitz  # PyMuPDF
+import pymupdf  
 import io
 import requests
 from PIL import Image
