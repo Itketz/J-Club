@@ -1,5 +1,5 @@
 import streamlit as st
-import fitz  # This will now be powered by pymupdf-lite
+from pdf2image import convert_from_bytes # NEW LIBRARY
 import io
 import requests
 from PIL import Image
@@ -113,20 +113,14 @@ elif page == "Creator Studio":
             else:
                 st.error("DOI not found. Please check the string.")
 
-    # STEP 2: PDF DECOMPOSE
-    st.subheader("2. Upload & Decompose")
-    uploaded_pdf = st.file_uploader("Upload PDF", type="pdf")
-    
+   # --- UPDATED DECOMPOSE LOGIC ---
     if uploaded_pdf:
         if 'active_slides' not in st.session_state:
-            with st.spinner("Rendering High-Res Slides..."):
-                doc = fitz.open(stream=uploaded_pdf.read(), filetype="pdf")
-                extracted = []
-                mat = fitz.Matrix(4.0, 4.0) 
-                for page_obj in doc:
-                    pix = page_obj.get_pixmap(matrix=mat)
-                    extracted.append(Image.open(io.BytesIO(pix.tobytes())))
-                st.session_state.active_slides = extracted
+            with st.spinner("Rendering High-Res Slides via Poppler..."):
+                # We use convert_from_bytes instead of fitz
+                pdf_data = uploaded_pdf.read()
+                images = convert_from_bytes(pdf_data, dpi=200) 
+                st.session_state.active_slides = images
 
         if 'active_slides' in st.session_state:
             col_stage, col_tools = st.columns([3, 1])
