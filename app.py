@@ -1,14 +1,14 @@
 import streamlit as st
-from pdf2image import convert_from_bytes # NEW LIBRARY
+import os
+import fitz  # PyMuPDF
 import io
 import requests
+import base64
 from PIL import Image
 import streamlit.components.v1 as components
 
-
-
 # --- 1. CONFIG & STORAGE ---
-st.set_page_config(page_title="J-Club", layout="wide")
+st.set_page_config(page_title="ScholarTube", layout="wide", page_icon="🔬")
 
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
@@ -21,57 +21,111 @@ def get_paper_metadata(doi):
         if response.status_code == 200:
             data = response.json()['message']
             title = data.get('title', ['Unknown Title'])[0]
-            authors = [f"{a.get('given')} {a.get('family')}" for a in data.get('author', [])]
             journal = data.get('container-title', [''])[0]
-            year = data.get('created', {}).get('date-parts', [[0]])[0][0]
             return {
                 "title": title,
-                "authors": ", ".join(authors[:3]) + ("..." if len(authors) > 3 else ""),
-                "journal": f"{journal} ({year})"
+                "journal": journal
             }
     except:
         return None
     return None
 
-# --- 3. JAVASCRIPT MASTER RECORDER ---
+# --- 3. GLOBAL RECORDER + MIC SELECTOR + PIP BUBBLE ---
 record_js = """
 <script>
 let mediaRecorder;
 let recordedChunks = [];
+let pipVideo;
+
+// Function to populate the microphone list
+async function getMicrophones() {
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioDevices = devices.filter(device => device.kind === 'audioinput');
+        const select = document.getElementById('micSelect');
+        select.innerHTML = '';
+        audioDevices.forEach(device => {
+            const option = document.createElement('option');
+            option.value = device.deviceId;
+            option.text = device.label || `Microphone ${select.length + 1}`;
+            select.appendChild(option);
+        });
+    } catch (err) { console.error("Error listing mics:", err); }
+}
+
+async function startBubble() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        pipVideo = document.createElement('video');
+        pipVideo.srcObject = stream;
+        pipVideo.muted = true;
+        pipVideo.play();
+        
+        pipVideo.addEventListener('loadedmetadata', () => {
+            pipVideo.requestPictureInPicture();
+        });
+    } catch (err) { alert("Camera access denied."); }
+}
 
 async function startRecording() {
     try {
-        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: "always" }, audio: true });
-        const voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        const combinedStream = new MediaStream([...screenStream.getVideoTracks(), ...voiceStream.getAudioTracks()]);
+        const micId = document.getElementById('micSelect').value;
+        
+        // Capture Screen (PowerPoint/Desktop)
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ 
+            video: { cursor: "always" }, 
+            audio: true 
+        });
+        
+        // Capture selected Microphone
+        const voiceStream = await navigator.mediaDevices.getUserMedia({ 
+            audio: { deviceId: micId ? { exact: micId } : undefined } 
+        });
+        
+        const combined = new MediaStream([
+            ...screenStream.getVideoTracks(), 
+            ...voiceStream.getAudioTracks()
+        ]);
 
-        mediaRecorder = new MediaRecorder(combinedStream);
+        mediaRecorder = new MediaRecorder(combined);
         mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
         mediaRecorder.onstop = () => {
             const blob = new Blob(recordedChunks, { type: "video/webm" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = "research_trailer.webm";
+            a.download = "jclub_trailer.webm";
             a.click();
             recordedChunks = [];
-            combinedStream.getTracks().forEach(t => t.stop());
+            combined.getTracks().forEach(t => t.stop());
         };
         mediaRecorder.start();
-        alert("🎤 Recording started! Present your slides now.");
     } catch (err) { alert("Recording access denied."); }
 }
-function stopRecording() { mediaRecorder.stop(); }
+
+function stopAll() {
+    if(mediaRecorder) mediaRecorder.stop();
+    if(document.pictureInPictureElement) document.exitPictureInPicture();
+}
+
+// Initial permission request to label microphones
+navigator.mediaDevices.getUserMedia({ audio: true }).then(getMicrophones);
 </script>
-<div style="text-align: center; background: #111; padding: 10px; border-radius: 10px; border: 1px solid #333;">
-    <button onclick="startRecording()" style="background:#ff4b4b; color:white; border:none; padding:10px 20px; border-radius:5px; cursor:pointer; font-weight:bold;">🔴 START RECORDING</button>
-    <button onclick="stopRecording()" style="background:#444; color:white; border:none; padding:10px 20px; border-radius:5px; cursor:pointer; margin-left:10px;">⏹️ STOP & DOWNLOAD</button>
+<div style="background: #1a1c24; padding: 15px; border-radius: 10px; border: 1px solid #333; color: white; font-family: sans-serif;">
+    <label style="font-size: 12px; margin-bottom: 5px; display: block;">🎙️ Select Microphone:</label>
+    <select id="micSelect" style="width: 100%; background: #333; color: white; border: 1px solid #555; padding: 8px; border-radius: 4px; margin-bottom: 15px;"></select>
+    
+    <button onclick="startBubble()" style="background:#4b4bff; color:white; border:none; padding:10px; border-radius:5px; cursor:pointer; font-weight:bold; margin-bottom:10px; width:100%;">🔵 1. POP OUT BUBBLE</button>
+    <div style="display: flex; gap: 5%;">
+        <button onclick="startRecording()" style="background:#ff4b4b; color:white; border:none; padding:10px; border-radius:5px; cursor:pointer; font-weight:bold; width:45%;">🔴 2. RECORD</button>
+        <button onclick="stopAll()" style="background:#444; color:white; border:none; padding:10px; border-radius:5px; cursor:pointer; width:45%;">⏹️ STOP</button>
+    </div>
 </div>
 """
 
 # --- 4. SIDEBAR NAVIGATION ---
 with st.sidebar:
-    st.title("J-Club")
+    st.title("ScholarTube")
     current_user = st.selectbox("Login as:", ["Dr. Miguel", "Prof. Sarah"])
     st.markdown("---")
     page = st.radio("Navigation", ["Home Feed", "Creator Studio", "My Profile"])
@@ -83,7 +137,6 @@ if page == "Home Feed":
     if not vids:
         st.info("No research trailers published yet.")
     for v in vids:
-        # Format: User_Journal_Title.webm
         parts = v.split('_')
         with st.container(border=True):
             col_icon, col_txt = st.columns([1, 8])
@@ -97,63 +150,43 @@ if page == "Home Feed":
 elif page == "Creator Studio":
     st.header("🎥 Research Trailer Studio")
     
-    # STEP 1: VERIFIED DOI
-    st.subheader("1. Identify Your Paper")
-    doi = st.text_input("Enter DOI (e.g., 10.1038/s41586-025-10062-6)")
-    
+    doi = st.text_input("1. Enter DOI", placeholder="10.1038/s41586-025-10062-6")
     if doi:
-        with st.spinner("Verifying DOI..."):
-            paper_info = get_paper_metadata(doi)
-            if paper_info:
-                st.success("Verified Paper Found!")
-                st.session_state.current_paper = paper_info
-                st.markdown(f"**Title:** {paper_info['title']}")
-                st.markdown(f"**Journal:** {paper_info['journal']}")
-                st.markdown(f"**Authors:** {paper_info['authors']}")
-            else:
-                st.error("DOI not found. Please check the string.")
+        paper_info = get_paper_metadata(doi)
+        if paper_info:
+            st.success(f"Verified: {paper_info['title']}")
+            st.session_state.current_paper = paper_info
 
-   # --- UPDATED DECOMPOSE LOGIC ---
-    if uploaded_pdf:
-        if 'active_slides' not in st.session_state:
-            with st.spinner("Rendering High-Res Slides via Poppler..."):
-                # We use convert_from_bytes instead of fitz
-                pdf_data = uploaded_pdf.read()
-                images = convert_from_bytes(pdf_data, dpi=200) 
-                st.session_state.active_slides = images
+    st.subheader("2. Presentation Controls")
+    col_info, col_tools = st.columns([2, 1])
+    
+    with col_tools:
+        st.write("### Control Panel")
+        components.html(record_js, height=260)
+        
+        st.divider()
+        st.write("### 📤 Publish")
+        final_v = st.file_uploader("Upload recording from Downloads", type="webm")
+        if st.button("Publish to Feed") and final_v:
+            p = st.session_state.get('current_paper', {'title': 'Paper', 'journal': 'Journal'})
+            safe_name = f"{current_user}_{p['journal']}_{p['title'][:20]}.webm".replace(" ", "_")
+            with open(os.path.join("uploads", safe_name), "wb") as f:
+                f.write(final_v.getbuffer())
+            st.success("Published!")
 
-        if 'active_slides' in st.session_state:
-            col_stage, col_tools = st.columns([3, 1])
-            with col_tools:
-                st.subheader("Recording")
-                components.html(record_js, height=120)
-                st.divider()
-                idx = st.select_slider("Slide", options=range(len(st.session_state.active_slides)))
-                st.camera_input("Narrator Bubble")
-                
-                # PUBLISH SECTION
-                st.divider()
-                st.write("### 📤 Publish")
-                final_v = st.file_uploader("Upload .webm file", type="webm")
-                if st.button("Publish to Feed") and final_v:
-                    # Clean filename for the feed
-                    p_title = st.session_state.get('current_paper', {}).get('title', 'UnknownTitle')[:30]
-                    p_journal = st.session_state.get('current_paper', {}).get('journal', 'UnknownJournal')[:20]
-                    safe_name = f"{current_user}_{p_journal}_{p_title}.webm".replace(" ", "")
-                    
-                    with open(os.path.join("uploads", safe_name), "wb") as f:
-                        f.write(final_v.getbuffer())
-                    st.success("Published!")
-                    # Clear session for next paper
-                    del st.session_state['active_slides']
-
-            with col_stage:
-                st.image(st.session_state.active_slides[idx], use_container_width=True)
+    with col_info:
+        st.info("""
+        **How to present with PowerPoint:**
+        1. **Select Mic:** Pick your preferred input from the list.
+        2. **Pop Out Bubble:** Launches your camera into a floating window.
+        3. **Record:** Select 'Entire Screen' to capture the bubble and PowerPoint together.
+        4. **Present:** Open your PowerPoint slides and start talking.
+        5. **Stop:** Return here to finish and download.
+        """)
 
 # --- 7. MY PROFILE ---
 elif page == "My Profile":
     st.header(f"Profile: {current_user}")
     my_vids = [f for f in os.listdir("uploads") if f.startswith(current_user)]
-    if my_vids:
-        for v in my_vids:
-            st.video(os.path.join("uploads", v))
+    for v in my_vids:
+        st.video(os.path.join("uploads", v))
